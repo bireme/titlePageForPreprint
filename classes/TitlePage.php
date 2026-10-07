@@ -14,7 +14,6 @@ class TitlePage
 {
     private $submission;
     private $checklist;
-    private $logo;
     private $locale;
     private $fontName;
     private $titlePageRequirements;
@@ -23,11 +22,43 @@ class TitlePage
     private const ORIGINAL_FILE_COPY = self::OUTPUT_DIRECTORY . "original_file_copy.pdf";
     private const AUX_FILE = self::OUTPUT_DIRECTORY . "aux_file.pdf";
 
-    public function __construct(SubmissionModel $submission, array $checklist, string $logo, string $locale)
+    // Measurements in mm, derived from the Letter reference document.
+    private const PAGE_WIDTH = 215.9;
+    private const PAGE_HEIGHT = 279.4;
+    private const MARGIN_X = 22.86;
+    private const MARGIN_Y = 19.05;
+    private const CONTENT_WIDTH = self::PAGE_WIDTH - 2 * self::MARGIN_X;
+    private const LOGO_LEFT_WIDTH = 76.90;
+    private const LOGO_RIGHT_WIDTH = 73.66;
+    private const LOGO_RIGHT_HEIGHT = 30.64;
+    private const VERSION_Y = 58.5;
+    private const DATE_COLUMN_OFFSET = 91.44;
+    private const BLUE = [0, 80, 141];
+    private const ORANGE = [180, 60, 11];
+    // TCPDF bundles all three Unicode styles; the supplied Open Sans is regular only.
+    private const COVER_FONT = 'dejavusans';
+    private const SPACING = [
+        'afterVersion' => 10.23,
+        'beforeSubtitle' => 3.53,
+        'beforeAuthors' => 7.76,
+        'betweenAuthors' => 1.41,
+        'beforeDoi' => 9.88,
+        'beforeDisclaimer' => 13.40,
+        'betweenNotices' => 3.53,
+        'beforeDates' => 14.82,
+        'beforeDateValue' => 2.82,
+    ];
+    private const LAYOUTS = [
+        ['gap' => 1.0, 'title' => 29, 'subtitle' => 17, 'author' => 12, 'warning' => 15, 'body' => 11.5],
+        ['gap' => 0.65, 'title' => 26, 'subtitle' => 15, 'author' => 11, 'warning' => 14, 'body' => 11],
+        ['gap' => 0.4, 'title' => 22, 'subtitle' => 13, 'author' => 10, 'warning' => 12, 'body' => 10],
+        ['gap' => 0.2, 'title' => 18, 'subtitle' => 11, 'author' => 9, 'warning' => 11, 'body' => 9],
+    ];
+
+    public function __construct(SubmissionModel $submission, array $checklist, string $locale)
     {
         $this->submission = $submission;
         $this->checklist = $checklist;
-        $this->logo = $logo;
         $this->locale = $locale;
         $this->fontName = TCPDF_FONTS::addTTFfont(__DIR__ . '/../resources/opensans.ttf', 'TrueTypeUnicode', '', 32);
         $this->titlePageRequirements = new TitlePageRequirements();
@@ -44,101 +75,156 @@ class TitlePage
         }
     }
 
-    public function getLogoType(): string
+    private function coverText(string $key, array $params = []): string
     {
-        $fileType = pathinfo($this->logo, PATHINFO_EXTENSION);
-        return strtoupper($fileType);
+        return __('plugins.generic.titlePageForPreprint.cover.' . $key, $params, $this->locale);
     }
 
-    private function writePublicationStatusOnTitlePage($titlePage)
+    private function renderText(TCPDF $pdf, string $text, float $size, string $style = '', string $align = 'C', array $color = [0, 0, 0]): void
     {
-        $titlePage->SetFont($this->fontName, '', 10, '', false);
+        $pdf->SetFont(self::COVER_FONT, $style, $size);
+        $pdf->SetTextColor(...$color);
+        $pdf->SetX(self::MARGIN_X);
+        $pdf->MultiCell(self::CONTENT_WIDTH, 0, $text, 0, $align, false, 1);
+    }
 
-        if (!empty($this->submission->getStatus())) {
-            $titlePage->Write(0, __('plugins.generic.titlePageForPreprint.publicationStatus', [], $this->locale) . ": " . __($this->submission->getStatus(), [], $this->locale), '', 0, 'JUSTIFY', true, 0, false, false, 0);
-
-            if ($this->submission->getStatus() == 'publication.relation.published') {
-                $titlePage->Write(0, __('publication.relation.vorDoi', [], $this->locale) . ": ", '', 0, 'JUSTIFY', false, 0, false, false, 0);
-                $titlePage->write(0, $this->submission->getJournalDOI(), $this->submission->getJournalDOI(), 0, 'JUSTIFY', true, 0, false, false, 0);
+    private function renderLogos(TCPDF $pdf): void
+    {
+        $resources = dirname(__DIR__) . '/resources/';
+        foreach (['lilacs-logo.jpg', 'lilacs-preprint-logo.png'] as $asset) {
+            if (!is_readable($resources . $asset)) {
+                throw new \RuntimeException('Missing institutional logo: ' . $asset);
             }
-        } else {
-            $titlePage->Write(0, __('plugins.generic.titlePageForPreprint.publicationStatus', [], $this->locale) . ": " . __('plugins.generic.titlePageForPreprint.emptyPublicationStatus', [], $this->locale), '', 0, 'JUSTIFY', true, 0, false, false, 0);
         }
+        // Align the image boxes along their bottom edge, preserving the original aspect ratios.
+        $leftHeight = self::LOGO_LEFT_WIDTH * 145 / 486;
+        $bottom = self::MARGIN_Y + self::LOGO_RIGHT_HEIGHT;
+        $pdf->Image($resources . 'lilacs-logo.jpg', self::MARGIN_X, $bottom - $leftHeight, self::LOGO_LEFT_WIDTH, 0, 'JPG');
+        $pdf->Image($resources . 'lilacs-preprint-logo.png', self::PAGE_WIDTH - self::MARGIN_X - self::LOGO_RIGHT_WIDTH, self::MARGIN_Y, self::LOGO_RIGHT_WIDTH, 0, 'PNG');
+    }
 
-        $titlePage->Ln(5);
+    private function renderPreprintVersion(TCPDF $pdf): void
+    {
+        $escape = static fn ($text) => htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
+        $pdf->SetXY(self::MARGIN_X, self::VERSION_Y);
+        $pdf->SetFont(self::COVER_FONT, '', 14);
+        $html = '<span style="font-size:14pt;color:#00508D;font-weight:bold">' . $escape($this->coverText('preprint')) . '</span>'
+            . ' &nbsp; <span style="font-size:10pt;color:#B43C0B;font-weight:bold">'
+            . $escape($this->coverText('version', ['version' => $this->submission->getVersion()])) . '</span>';
+        $pdf->writeHTMLCell(self::CONTENT_WIDTH, 0, '', '', $html, 0, 1, false, true, 'C');
+    }
+
+    private function renderTitle(TCPDF $pdf, array $layout): void
+    {
+        $title = Normalizer::normalize($this->submission->getTitle($this->locale));
+        $this->renderText($pdf, $title, $layout['title'], 'B');
+        $subtitle = trim($this->submission->getSubtitle($this->locale));
+        if ($subtitle !== '') {
+            $pdf->SetY($pdf->GetY() + self::SPACING['beforeSubtitle'] * $layout['gap']);
+            $this->renderText($pdf, Normalizer::normalize($subtitle), $layout['subtitle'], 'I');
+        }
+    }
+
+    private function renderAuthors(TCPDF $pdf, array $layout): void
+    {
+        $authors = $this->submission->getAuthorNames($this->locale);
+        foreach ($authors as $index => $author) {
+            if ($index > 0) {
+                $pdf->SetY($pdf->GetY() + self::SPACING['betweenAuthors'] * $layout['gap']);
+            }
+            $this->renderText($pdf, $author, $layout['author']);
+        }
+    }
+
+    private function renderDoi(TCPDF $pdf): void
+    {
+        $doi = trim((string) $this->submission->getData('doi'));
+        $escape = static fn ($text) => htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
+        $pdf->SetFont(self::COVER_FONT, '', 11);
+        $pdf->SetTextColor(0, 0, 0);
+        $pdf->SetX(self::MARGIN_X);
+        $html = '<span style="font-size:10pt;color:#00508D;font-weight:bold">' . $escape($this->coverText('doi')) . '</span> &nbsp; ';
+        if ($doi !== '') {
+            $url = preg_match('~^https?://(?:dx\.)?doi\.org/~i', $doi) ? $doi : 'https://doi.org/' . $doi;
+            $html .= '<a href="' . $escape($url) . '" style="color:#000000;text-decoration:none">' . $escape($doi) . '</a>';
+        } else {
+            $html .= $escape($this->coverText('doiUnavailable'));
+        }
+        $pdf->writeHTMLCell(self::CONTENT_WIDTH, 0, '', '', $html, 0, 1, false, true, 'C');
+    }
+
+    private function renderDisclaimer(TCPDF $pdf, array $layout): void
+    {
+        $this->renderText($pdf, $this->coverText('notPeerReviewed'), $layout['warning'], 'B', 'L', self::ORANGE);
+        $pdf->SetY($pdf->GetY() + self::SPACING['betweenNotices'] * $layout['gap']);
+        $this->renderText($pdf, $this->coverText('disclaimer'), $layout['body'], 'I', 'L');
+    }
+
+    private function renderDates(TCPDF $pdf, array $layout): void
+    {
+        $top = $pdf->GetY();
+        $width = self::CONTENT_WIDTH - self::DATE_COLUMN_OFFSET;
+        $columns = [
+            [$this->coverText('submitted'), $this->submission->getSubmissionDate()],
+            [$this->coverText('posted'), $this->coverText('postedValue', [
+                'date' => $this->submission->getPublicationDate(),
+                'version' => $this->submission->getVersion(),
+            ])],
+        ];
+        $bottom = $top;
+        foreach ($columns as $index => [$label, $value]) {
+            $x = self::MARGIN_X + $index * self::DATE_COLUMN_OFFSET;
+            $pdf->SetXY($x, $top);
+            $pdf->SetFont(self::COVER_FONT, 'B', 9);
+            $pdf->SetTextColor(...self::BLUE);
+            $pdf->MultiCell($width, 0, $label, 0, 'L', false, 1);
+            $pdf->SetXY($x, $pdf->GetY() + self::SPACING['beforeDateValue'] * $layout['gap']);
+            $pdf->SetFont(self::COVER_FONT, '', $layout['author']);
+            $pdf->SetTextColor(0, 0, 0);
+            $pdf->MultiCell($width, 0, $value, 0, 'L', false, 1);
+            $bottom = max($bottom, $pdf->GetY());
+        }
+        $pdf->SetY($bottom);
     }
 
     private function generateTitlePage(): string
     {
-        $errorMessage = 'plugins.generic.titlePageForPreprint.requirements.generateTitlePageMissing';
         try {
-            $titlePage = new TCPDF(PDF_PAGE_ORIENTATION, PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false);
-            $titlePage->setPrintHeader(false);
-            $titlePage->setPrintFooter(false);
-            $titlePage->AddPage();
-            $logoType = $this->getLogoType();
+            foreach (self::LAYOUTS as $layout) {
+                $pdf = new TCPDF('P', 'mm', [self::PAGE_WIDTH, self::PAGE_HEIGHT], true, 'UTF-8', false);
+                $pdf->setPrintHeader(false);
+                $pdf->setPrintFooter(false);
+                $pdf->SetMargins(self::MARGIN_X, self::MARGIN_Y, self::MARGIN_X);
+                $pdf->SetAutoPageBreak(false, self::MARGIN_Y);
+                $pdf->setCellPaddings(0, 0, 0, 0);
+                $pdf->setCellHeightRatio(1.15);
+                $pdf->AddPage();
+                $this->renderLogos($pdf);
+                $this->renderPreprintVersion($pdf);
+                $pdf->SetY($pdf->GetY() + self::SPACING['afterVersion'] * $layout['gap']);
+                $this->renderTitle($pdf, $layout);
+                $pdf->SetY($pdf->GetY() + self::SPACING['beforeAuthors'] * $layout['gap']);
+                $this->renderAuthors($pdf, $layout);
+                $pdf->SetY($pdf->GetY() + self::SPACING['beforeDoi'] * $layout['gap']);
+                $this->renderDoi($pdf);
+                $pdf->SetY($pdf->GetY() + self::SPACING['beforeDisclaimer'] * $layout['gap']);
+                $this->renderDisclaimer($pdf, $layout);
+                $pdf->SetY($pdf->GetY() + self::SPACING['beforeDates'] * $layout['gap']);
+                $this->renderDates($pdf, $layout);
 
-            if (!$logoType) {
-                $errorMessage = 'plugins.generic.titlePageForPreprint.requirements.logoMissing';
-            }
-
-            $doiLink = "https://doi.org/" . $this->submission->getDOI();
-            $titlePage->Image($this->logo, '', '', '', '20', $logoType, $doiLink, 'C', false, 400, 'C', false, false, 0, false, false, false);
-            $titlePage->Ln(25);
-            $this->writePublicationStatusOnTitlePage($titlePage);
-
-            $titlePage->SetFont($this->fontName, '', 18, '', false);
-            $normalizedTitle = Normalizer::normalize($this->submission->getTitle($this->locale));
-            $titlePage->Write(0, $normalizedTitle, '', 0, 'C', true, 0, false, false, 0);
-
-            $titlePage->SetFont($this->fontName, '', 12, '', false);
-            $titlePage->Write(0, $this->submission->getAuthors(), '', 0, 'C', true, 0, false, false, 0);
-            $titlePage->SetFont($this->fontName, '', 11, '', false);
-            $titlePage->Ln(5);
-            $titlePage->Write(0, $doiLink, $doiLink, 0, 'C', true, 0, false, false, 0);
-            $titlePage->Ln(10);
-
-            $titlePage->Write(0, __('plugins.generic.titlePageForPreprint.submissionDate', ['subDate' => $this->submission->getSubmissionDate()], $this->locale), '', 0, 'JUSTIFY', true, 0, false, false, 0);
-            $titlePage->Write(0, __('plugins.generic.titlePageForPreprint.publicationDate', ['postDate' => $this->submission->getPublicationDate(), 'version' => $this->submission->getVersion()], $this->locale), '', 0, 'JUSTIFY', true, 0, false, false, 0);
-            $titlePage->Write(0, __('plugins.generic.titlePageForPreprint.dateFormat', [], $this->locale), '', 0, 'JUSTIFY', true, 0, false, false, 0);
-
-            if ($this->submission->getIsTranslation()) {
-                $titlePage->Ln(5);
-                $titlePage->writeHTML(__('plugins.generic.titlePageForPreprint.citation', ['citation' => $this->submission->getCitation()], $this->locale));
-            }
-
-            $endorsers = $this->submission->getEndorsers();
-            if (!empty($endorsers)) {
-                $titlePage->Ln(5);
-                $titlePage->Write(0, __('plugins.generic.titlePageForPreprint.endorsement', [], $this->locale), '', 0, 'JUSTIFY', true, 0, false, false, 0);
-
-                foreach ($endorsers as $endorser) {
-                    $endorserLine = __(
-                        'plugins.generic.titlePageForPreprint.endorserLine',
-                        ['endorserName' => $endorser->getName(), 'endorserOrcid' => $endorser->getOrcid()],
-                        $this->locale
-                    );
-
-                    $titlePage->Ln(2);
-                    $titlePage->writeHTML('<ul style=\"text-align:justify;\"><li>' . $endorserLine . '</li></ul>');
+                if ($pdf->GetY() <= self::PAGE_HEIGHT - self::MARGIN_Y && $pdf->getNumPages() === 1) {
+                    $file = self::OUTPUT_DIRECTORY . 'titlePage.pdf';
+                    $pdf->Output($file, 'F');
+                    return $file;
                 }
             }
-
-            $versionJustification = $this->submission->getVersionJustification();
-            if ($this->submission->getVersion() > 1 && !is_null($versionJustification)) {
-                $versionJustification = __('plugins.generic.titlePageForPreprint.versionJustification', [], $this->locale) . ": " . $versionJustification;
-                $titlePage->Ln(5);
-                $titlePage->Write(0, $versionJustification, '', 0, 'JUSTIFY', true, 0, false, false, 0);
-            }
-
-            $TitlePageFile = self::OUTPUT_DIRECTORY . 'titlePage.pdf';
-            $titlePage->Output($TitlePageFile, 'F');
-        } catch (Exception $e) {
-            $this->titlePageRequirements->showMissingRequirementNotification($errorMessage);
-            throw new Exception('Title Page Generation Failure');
+            // Never truncate metadata or replace the original with an overflowing cover.
+            throw new \LengthException($this->coverText('tooLong'));
+        } catch (\Exception $e) {
+            $key = $e instanceof \LengthException ? 'cover.tooLong' : 'requirements.generateTitlePageMissing';
+            $this->titlePageRequirements->showMissingRequirementNotification('plugins.generic.titlePageForPreprint.' . $key);
+            throw $e;
         }
-
-        return $TitlePageFile;
     }
 
     public function generateChecklistPage(): string

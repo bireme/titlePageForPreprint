@@ -3,7 +3,6 @@
 namespace APP\plugins\generic\titlePageForPreprint\classes;
 
 use APP\facades\Repo;
-use APP\file\PublicFileManager;
 use APP\publication\Publication;
 use APP\core\Application;
 use PKP\plugins\PluginRegistry;
@@ -16,7 +15,6 @@ class SubmissionPressFactory
     public function createSubmissionPress($submission, $publication, $context): SubmissionPress
     {
         $checklist = $this->getContextChecklist($context);
-        $logoPath = $this->getLogoPath($context);
         $dataForPress = $this->getDataForPress($submission, $publication);
         $galleys = $publication->getData('galleys');
         $submissionGalleys = [];
@@ -31,7 +29,7 @@ class SubmissionPressFactory
         $submissionModel = new SubmissionModel();
         $submissionModel->setAllData($dataForPress);
 
-        return new SubmissionPress($submissionModel, $checklist, $logoPath);
+        return new SubmissionPress($submissionModel, $checklist);
     }
 
     private function getContextChecklist($context): array
@@ -48,29 +46,21 @@ class SubmissionPressFactory
     }
 
 
-    private function getLogoPath($context): string
+    private function getAuthorNames($publication): array
     {
-        $publicFileManager = new PublicFileManager();
-        $filesPath = $publicFileManager->getContextFilesPath($context->getId());
-        $logoFilePath = $context->getLocalizedData('pageHeaderLogoImage')['uploadName'];
-
-        return $filesPath . DIRECTORY_SEPARATOR . $logoFilePath;
-    }
-
-    private function getAuthors($publication)
-    {
-        $userGroups = [];
-        foreach ($publication->getData('authors') as $author) {
-            $userGroupId = $author->getData('userGroupId');
-
-            if (!isset($userGroups[$userGroupId])) {
-                $userGroups[$userGroupId] = Repo::userGroup()->get($userGroupId);
+        $names = [];
+        // Resolve names for every galley locale with PKP's own locale fallback.
+        $locales = array_keys($publication->getTitles());
+        foreach ($publication->getData('galleys') ?? [] as $galley) {
+            $locales[] = $galley->getData('locale');
+        }
+        $locales = array_unique($locales);
+        foreach ($locales as $locale) {
+            foreach ($publication->getData('authors') ?? [] as $author) {
+                $names[$locale][] = $author->getFullName(true, false, $locale);
             }
         }
-
-        $traversableArray = new \ArrayObject($userGroups);
-
-        return $publication->getAuthorString($traversableArray);
+        return $names;
     }
 
     private function getDataForPress($submission, $publication)
@@ -78,9 +68,10 @@ class SubmissionPressFactory
         $data = [];
 
         $data['title'] = $publication->getTitles();
+        $data['subtitle'] = $publication->getSubTitles();
         $data['doi'] = $publication->getStoredPubId('doi');
         $data['doiJournal'] = $publication->getData('vorDoi');
-        $data['authors'] = $this->getAuthors($publication);
+        $data['authorNames'] = $this->getAuthorNames($publication);
         $data['version'] = $publication->getData('version');
         $data['versionJustification'] = $publication->getData('versionJustification');
 

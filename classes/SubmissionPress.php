@@ -11,16 +11,14 @@ class SubmissionPress
 {
     private $submission;
     private $checklist;
-    private $logoForTitlePage;
 
-    public function __construct(SubmissionModel $submission, array $checklist, string $logoForTitlePage)
+    public function __construct(SubmissionModel $submission, array $checklist)
     {
         $this->submission = $submission;
         $this->checklist = $checklist;
-        $this->logoForTitlePage = $logoForTitlePage;
     }
 
-    private function galleyHasTitlePage($galley)
+    protected function galleyHasTitlePage($galley)
     {
         $submissionFile = Repo::submissionFile()->get($galley->submissionFileId);
 
@@ -31,7 +29,7 @@ class SubmissionPress
     public function insertTitlePage($submissionFileUpdater): void
     {
         foreach ($this->submission->getGalleys() as $galley) {
-            $titlePage = new TitlePage($this->submission, $this->checklist, $this->logoForTitlePage, $galley->locale);
+            $titlePage = new TitlePage($this->submission, $this->checklist, $galley->locale);
             $pdfPath = $galley->getFullFilePath();
 
             if (Pdf::isPdf($pdfPath)) {

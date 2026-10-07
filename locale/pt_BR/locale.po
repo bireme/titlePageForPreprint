@@ -48,7 +48,7 @@ msgid "plugins.generic.titlePageForPreprint.versionJustification"
 msgstr "Justificativa da versão"
 
 msgid "plugins.generic.titlePageForPreprint.headerText"
-msgstr "SciELO Preprints - Este documento é um preprint e sua situação atual está disponível em: {$doiPreprint}"
+msgstr "LILACS Preprint - Este documento é um preprint e sua situação atual está disponível em: {$doiPreprint}"
 
 msgid "plugins.generic.titlePageForPreprint.dateFormat"
 msgstr "(AAAA-MM-DD)"
@@ -61,9 +61,6 @@ msgstr "Folha de Rosto - Este plugin precisa que o binário presente no diretór
 
 msgid "plugins.generic.titlePageForPreprint.requirements.removeTitlePageMissing"
 msgstr "Falha ao Remover Folha de Rosto"
-
-msgid "plugins.generic.titlePageForPreprint.requirements.logoMissing"
-msgstr "Logotipo ausente - Este plugin também requer um logotipo definido em Configurações do site > Aparência > Logo, então você precisa fazer upload de uma imagem"
 
 msgid "plugins.generic.titlePageForPreprint.requirements.generateTitlePageMissing"
 msgstr "Falha na Geração da Folha de Rosto"
@@ -79,3 +76,33 @@ msgstr "Falha de Concatenação da Folha de Rosto"
 
 msgid "plugins.generic.titlePageForPreprint.requirements.concatenateChecklistPageMissing"
 msgstr "Falha de Concatenação da Página de Checklist"
+
+msgid "plugins.generic.titlePageForPreprint.cover.preprint"
+msgstr "PREPRINT"
+
+msgid "plugins.generic.titlePageForPreprint.cover.version"
+msgstr "VERSÃO {$version}"
+
+msgid "plugins.generic.titlePageForPreprint.cover.doi"
+msgstr "DOI"
+
+msgid "plugins.generic.titlePageForPreprint.cover.notPeerReviewed"
+msgstr "Este preprint não passou por revisão por pares."
+
+msgid "plugins.generic.titlePageForPreprint.cover.disclaimer"
+msgstr "Sua publicação não certifica a qualidade científica do trabalho, não valida suas conclusões e não representa endosso científico da BIREME, da OPAS ou da OMS."
+
+msgid "plugins.generic.titlePageForPreprint.cover.submitted"
+msgstr "SUBMETIDO EM"
+
+msgid "plugins.generic.titlePageForPreprint.cover.posted"
+msgstr "POSTADO EM"
+
+msgid "plugins.generic.titlePageForPreprint.cover.postedValue"
+msgstr "{$date} (versão {$version})"
+
+msgid "plugins.generic.titlePageForPreprint.cover.doiUnavailable"
+msgstr "Não informado"
+
+msgid "plugins.generic.titlePageForPreprint.cover.tooLong"
+msgstr "Os metadados excedem o espaço de uma folha de rosto. O PDF original foi preservado."
