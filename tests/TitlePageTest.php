@@ -9,7 +9,9 @@ class TitlePageTest extends PdfHandlingTest
 {
     private function text(string $path, int $page = 1): string
     {
-        $text = shell_exec('pdftotext -f ' . $page . ' -l ' . $page . ' ' . escapeshellarg($path) . ' -');
+        $text = shell_exec('pdftotext -layout -f ' . $page . ' -l ' . $page . ' ' . escapeshellarg($path) . ' -');
+        // Keep literal hyphens when Poppler wraps a compound word at the line end.
+        $text = preg_replace('/-\h*\R\h*/u', '-', $text);
         return trim(preg_replace('/\s+/u', ' ', $text));
     }
 
@@ -24,16 +26,16 @@ class TitlePageTest extends PdfHandlingTest
         $doc = new DOMDocument();
         $this->assertTrue($doc->loadXML($xml));
         $page = $doc->getElementsByTagName('page')->item(0);
-        $this->assertEqualsWithDelta(612, (float) $page->getAttribute('width'), 0.1);
-        $this->assertEqualsWithDelta(792, (float) $page->getAttribute('height'), 0.1);
+        $this->assertEqualsWithDelta(595.28, (float) $page->getAttribute('width'), 0.1);
+        $this->assertEqualsWithDelta(841.89, (float) $page->getAttribute('height'), 0.1);
         foreach ($doc->getElementsByTagName('word') as $word) {
             // TCPDF itself adds a 1 pt attribution at the physical bottom edge.
             if ((float) $word->getAttribute('yMax') - (float) $word->getAttribute('yMin') < 2) {
                 continue;
             }
             $this->assertGreaterThanOrEqual(64, (float) $word->getAttribute('xMin'), $word->textContent);
-            $this->assertLessThanOrEqual(548, (float) $word->getAttribute('xMax'), $word->textContent);
-            $this->assertLessThanOrEqual(738, (float) $word->getAttribute('yMax'), $word->textContent);
+            $this->assertLessThanOrEqual(531, (float) $word->getAttribute('xMax'), $word->textContent);
+            $this->assertLessThanOrEqual(788, (float) $word->getAttribute('yMax'), $word->textContent);
         }
         // Compare extracted text blocks, not raster pixels or font antialiasing.
         $blocks = iterator_to_array($doc->getElementsByTagName('block'));
@@ -58,7 +60,7 @@ class TitlePageTest extends PdfHandlingTest
             $page = new TitlePage($submission, $this->checklist, $locale);
             $pdf = new Pdf($this->pathOfTestPdf2);
             $page->insertTitlePageFirstTime($pdf);
-            $this->assertSame(4, $pdf->getNumberOfPages());
+            $this->assertSame(3, $pdf->getNumberOfPages());
             $text = $this->text($pdf->getPath());
             foreach ([$this->title[$locale], $this->subtitle[$locale], $this->doi, $this->submissionDate, $this->publicationDate] as $value) {
                 $this->assertStringContainsString($value, $text);
@@ -80,14 +82,77 @@ class TitlePageTest extends PdfHandlingTest
             }
             $this->assertStringNotContainsString(__('plugins.generic.titlePageForPreprint.publicationStatus', [], $locale), $text);
             foreach ($this->checklist[$locale] as $item) {
-                $this->assertStringContainsString($item, $this->text($pdf->getPath(), 4));
+                $this->assertStringNotContainsString($item, shell_exec('pdftotext ' . escapeshellarg($pdf->getPath()) . ' -'));
             }
-            $header = __('plugins.generic.titlePageForPreprint.headerText', ['doiPreprint' => 'https://doi.org/' . $this->doi], $locale);
+            $header = __('plugins.generic.titlePageForPreprint.headerText', [], $locale);
             $this->assertStringContainsString($header, $this->text($pdf->getPath(), 2));
-            $this->assertStringNotContainsString('SciELO Preprints', $this->text($pdf->getPath(), 2));
+            foreach (['SciELO Preprints', $this->doi, 'Not informed', 'https://doi.org/'] as $absent) {
+                $this->assertStringNotContainsString($absent, $this->text($pdf->getPath(), 2));
+            }
             $this->assertPageBounds($pdf->getPath());
             $annotations = shell_exec('pdftohtml -xml -i -stdout -f 1 -l 1 ' . escapeshellarg($pdf->getPath()));
             $this->assertStringContainsString('https://doi.org/' . $this->doi, $annotations);
+        }
+    }
+
+    public function testAbsentDoiHasLocalizedTextWithoutLink(): void
+    {
+        foreach (['pt_BR', 'es', 'en'] as $locale) {
+            foreach ([null, '', '   '] as $doi) {
+                copy(self::TESTS_DIRECTORY . self::ASSETS_DIRECTORY . 'testOnePage.pdf', $this->pathOfTestPdf);
+                $submission = $this->getSubmissionForTests();
+                $submission->setData('doi', $doi);
+                (new TitlePage($submission, $this->checklist, $locale))->insertTitlePageFirstTime(new Pdf($this->pathOfTestPdf));
+                $this->assertSame(2, (new Pdf($this->pathOfTestPdf))->getNumberOfPages());
+                $this->assertStringContainsString('DOI ' . $this->coverText('doiUnavailable', $locale), $this->text($this->pathOfTestPdf));
+                $annotations = shell_exec('pdftohtml -xml -i -stdout -f 1 -l 1 ' . escapeshellarg($this->pathOfTestPdf));
+                $this->assertStringNotContainsString('href=', $annotations);
+                $this->assertStringNotContainsString('https://doi.org/', $annotations);
+                $header = $this->text($this->pathOfTestPdf, 2);
+                $this->assertStringContainsString(__('plugins.generic.titlePageForPreprint.headerText', [], $locale), $header);
+                $this->assertStringNotContainsString('Not informed', $header);
+                $this->assertStringNotContainsString('https://doi.org/', $header);
+            }
+        }
+    }
+
+    public function testAdaptiveAuthorLayout(): void
+    {
+        foreach (['pt_BR', 'es', 'en'] as $locale) {
+            foreach ([1, 5, 6, 10] as $count) {
+                copy(self::TESTS_DIRECTORY . self::ASSETS_DIRECTORY . 'testOnePage.pdf', $this->pathOfTestPdf);
+                $submission = $this->getSubmissionForTests();
+                $names = array_slice([
+                    'João Gonçalves', 'María García', 'André Luís Pereira', 'Cláudia Fernández',
+                    'José da Conceição', 'Luísa Müller', 'René González', 'Márcia Araújo',
+                    'Álvaro Rodríguez', 'Érica Souza',
+                ], 0, $count);
+                $firstNames = array_map(static fn ($name) => strstr($name, ' ', true), $names);
+                $submission->setData('authorNames', [$locale => $names]);
+                (new TitlePage($submission, $this->checklist, $locale))->insertTitlePageFirstTime(new Pdf($this->pathOfTestPdf));
+                $this->assertSame(2, (new Pdf($this->pathOfTestPdf))->getNumberOfPages());
+                $this->assertStringContainsString(implode($count >= 6 ? ', ' : ' ', $names), $this->text($this->pathOfTestPdf));
+                $doc = new DOMDocument();
+                $doc->loadXML(shell_exec('pdftotext -f 1 -l 1 -bbox-layout ' . escapeshellarg($this->pathOfTestPdf) . ' -'));
+                $authorLines = [];
+                foreach ($doc->getElementsByTagName('line') as $line) {
+                    $words = [];
+                    foreach ($line->getElementsByTagName('word') as $word) {
+                        $words[] = $word->textContent;
+                    }
+                    if (array_intersect($firstNames, $words)) {
+                        $authorLines[] = implode(' ', $words);
+                        $this->assertEqualsWithDelta(595.28 / 2, ((float) $line->getAttribute('xMin') + (float) $line->getAttribute('xMax')) / 2, 1);
+                    }
+                }
+                if ($count <= 5) {
+                    $this->assertSame($names, $authorLines);
+                } else {
+                    $this->assertLessThan($count, count($authorLines));
+                    $this->assertStringContainsString(', ', implode(' ', $authorLines));
+                }
+                $this->assertPageBounds($this->pathOfTestPdf);
+            }
         }
     }
 
@@ -101,7 +166,7 @@ class TitlePageTest extends PdfHandlingTest
                 $submission->unsetData('subtitle');
             }
             (new TitlePage($submission, $this->checklist, $this->locale))->insertTitlePageFirstTime(new Pdf($this->pathOfTestPdf));
-            $this->assertSame(3, (new Pdf($this->pathOfTestPdf))->getNumberOfPages());
+            $this->assertSame(2, (new Pdf($this->pathOfTestPdf))->getNumberOfPages());
             $xml = shell_exec('pdftotext -f 1 -l 1 -bbox ' . escapeshellarg($this->pathOfTestPdf) . ' -');
             $doc = new DOMDocument();
             $doc->loadXML($xml);
@@ -155,7 +220,7 @@ class TitlePageTest extends PdfHandlingTest
             $page = new TitlePage($submission, $this->checklist, $this->locale);
             $pdf = new Pdf($this->pathOfTestPdf);
             $page->insertTitlePageFirstTime($pdf);
-            $this->assertSame(3, $pdf->getNumberOfPages());
+            $this->assertSame(2, $pdf->getNumberOfPages());
             $text = $this->text($pdf->getPath());
             $this->assertStringContainsString($title, $text);
             if ($withSubtitle) {
@@ -180,6 +245,9 @@ class TitlePageTest extends PdfHandlingTest
         $page->addDocumentHeader($stamped);
         $pdf = new Pdf($this->pathOfTestPdf2);
         $page->insertTitlePageFirstTime($pdf);
+        $this->assertSame(3, $pdf->getNumberOfPages());
+        // Reproduce a legacy PDF explicitly; new publications no longer append this page.
+        $page->concatenateChecklistPage($pdf->getPath(), $page->generateChecklistPage());
         $this->assertSame(4, $pdf->getNumberOfPages());
         $checklist = $this->text($pdf->getPath(), 4);
         $submission->setData('title', [$this->locale => 'Título atualizado']);
@@ -201,6 +269,45 @@ class TitlePageTest extends PdfHandlingTest
             }
             $difference = $images[0]->compareImages($images[1], Imagick::METRIC_MEANSQUAREERROR);
             $this->assertEquals(0, $difference[1]);
+        }
+    }
+
+    public function testNewPublicationAndUpdatePreserveMixedManuscriptPages(): void
+    {
+        $original = new TCPDF();
+        $original->setPrintHeader(false);
+        $original->setPrintFooter(false);
+        $original->AddPage('P', 'LETTER');
+        $original->Write(0, 'Original Letter manuscript page');
+        $original->AddPage('L', 'A5');
+        $original->Write(0, 'Original landscape A5 manuscript page');
+        $original->Output($this->pathOfTestPdf2, 'F');
+        $originalHash = hash_file('sha256', $this->pathOfTestPdf2);
+        $stamped = $this->testDirectory . '/mixed-stamped.pdf';
+        copy($this->pathOfTestPdf2, $stamped);
+        $submission = $this->getSubmissionForTests();
+        $page = new TitlePage($submission, $this->checklist, $this->locale);
+        $page->addDocumentHeader($stamped);
+        $this->assertSame($originalHash, hash_file('sha256', $this->pathOfTestPdf2));
+        $pdf = new Pdf($this->pathOfTestPdf2);
+        $page->insertTitlePageFirstTime($pdf);
+        for ($update = 0; $update <= 2; $update++) {
+            if ($update > 0) {
+                $submission->setData('version', (string) ($update + 1));
+                $page->updateTitlePage($pdf);
+            }
+            $this->assertSame(3, $pdf->getNumberOfPages());
+            $this->assertPageBounds($pdf->getPath());
+            for ($i = 1; $i <= 2; $i++) {
+                $pages = [];
+                foreach ([[$stamped, $i], [$pdf->getPath(), $i + 1]] as [$path, $number]) {
+                    $doc = new DOMDocument();
+                    $doc->loadXML(shell_exec('pdftotext -f ' . $number . ' -l ' . $number . ' -bbox-layout ' . escapeshellarg($path) . ' -'));
+                    $pages[] = $doc->saveXML($doc->getElementsByTagName('page')->item(0));
+                }
+                // Includes original page dimensions, text, and every word's position.
+                $this->assertSame($pages[0], $pages[1]);
+            }
         }
     }
 

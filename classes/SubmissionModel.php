@@ -41,7 +41,7 @@ class SubmissionModel extends DataObject
     public function getDOI(): string
     {
         $doi = $this->getData('doi');
-        return empty($doi) ? ("Not informed") : $doi;
+        return trim((string) $doi);
     }
 
     public function getJournalDOI(): string

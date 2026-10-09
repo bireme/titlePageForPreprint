@@ -103,7 +103,11 @@ class SubmissionTest extends PKPTestCase
         $submission = $this->getSubmissionForTests();
         $submission->unsetData('doi');
 
-        $this->assertEquals("Not informed", $submission->getDOI());
+        $this->assertSame('', $submission->getDOI());
+        foreach ([null, '', '   '] as $doi) {
+            $submission->setData('doi', $doi);
+            $this->assertSame('', $submission->getDOI());
+        }
     }
 
     public function testHasDoiJournal(): void

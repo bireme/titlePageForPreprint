@@ -22,9 +22,9 @@ class TitlePage
     private const ORIGINAL_FILE_COPY = self::OUTPUT_DIRECTORY . "original_file_copy.pdf";
     private const AUX_FILE = self::OUTPUT_DIRECTORY . "aux_file.pdf";
 
-    // Measurements in mm, derived from the Letter reference document.
-    private const PAGE_WIDTH = 215.9;
-    private const PAGE_HEIGHT = 279.4;
+    // A4 portrait measurements in mm; retain the reference margins and logo proportions.
+    private const PAGE_WIDTH = 210;
+    private const PAGE_HEIGHT = 297;
     private const MARGIN_X = 22.86;
     private const MARGIN_Y = 19.05;
     private const CONTENT_WIDTH = self::PAGE_WIDTH - 2 * self::MARGIN_X;
@@ -32,7 +32,9 @@ class TitlePage
     private const LOGO_RIGHT_WIDTH = 73.66;
     private const LOGO_RIGHT_HEIGHT = 30.64;
     private const VERSION_Y = 58.5;
-    private const DATE_COLUMN_OFFSET = 91.44;
+    private const DATE_COLUMN_GAP = 12;
+    private const DATE_COLUMN_OFFSET = (self::CONTENT_WIDTH + self::DATE_COLUMN_GAP) / 2;
+    private const AUTHORS_BLOCK_THRESHOLD = 6;
     private const BLUE = [0, 80, 141];
     private const ORANGE = [180, 60, 11];
     // TCPDF bundles all three Unicode styles; the supplied Open Sans is regular only.
@@ -128,6 +130,10 @@ class TitlePage
     private function renderAuthors(TCPDF $pdf, array $layout): void
     {
         $authors = $this->submission->getAuthorNames($this->locale);
+        if (count($authors) >= self::AUTHORS_BLOCK_THRESHOLD) {
+            $this->renderText($pdf, implode(', ', $authors), $layout['author']);
+            return;
+        }
         foreach ($authors as $index => $author) {
             if ($index > 0) {
                 $pdf->SetY($pdf->GetY() + self::SPACING['betweenAuthors'] * $layout['gap']);
@@ -138,7 +144,7 @@ class TitlePage
 
     private function renderDoi(TCPDF $pdf): void
     {
-        $doi = trim((string) $this->submission->getData('doi'));
+        $doi = $this->submission->getDOI();
         $escape = static fn ($text) => htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
         $pdf->SetFont(self::COVER_FONT, '', 11);
         $pdf->SetTextColor(0, 0, 0);
@@ -191,7 +197,7 @@ class TitlePage
     {
         try {
             foreach (self::LAYOUTS as $layout) {
-                $pdf = new TCPDF('P', 'mm', [self::PAGE_WIDTH, self::PAGE_HEIGHT], true, 'UTF-8', false);
+                $pdf = new TCPDF('P', 'mm', 'A4', true, 'UTF-8', false);
                 $pdf->setPrintHeader(false);
                 $pdf->setPrintFooter(false);
                 $pdf->SetMargins(self::MARGIN_X, self::MARGIN_Y, self::MARGIN_X);
@@ -259,8 +265,7 @@ class TitlePage
 
     public function addDocumentHeader($pdf): void
     {
-        $linkDOI = "https://doi.org/" . $this->submission->getDOI();
-        $headerText = __('plugins.generic.titlePageForPreprint.headerText', ['doiPreprint' => $linkDOI], $this->locale);
+        $headerText = __('plugins.generic.titlePageForPreprint.headerText', [], $this->locale);
         $addHeaderCommand = "cpdf -add-text \"{$headerText}\" -top 15pt -font \"Helvetica\" -font-size 8 {$pdf} -o " . self::AUX_FILE;
         exec($addHeaderCommand, $output, $resultCode);
         rename(self::AUX_FILE, $pdf);
@@ -304,9 +309,6 @@ class TitlePage
 
         $titlePage = $this->generateTitlePage();
         $this->concatenateTitlePage(self::ORIGINAL_FILE_COPY, $titlePage);
-
-        $checklistPage = $this->generateChecklistPage();
-        $this->concatenateChecklistPage(self::ORIGINAL_FILE_COPY, $checklistPage);
 
         rename(self::ORIGINAL_FILE_COPY, $originalFile);
     }

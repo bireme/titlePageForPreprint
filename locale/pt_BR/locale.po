@@ -48,7 +48,7 @@ msgid "plugins.generic.titlePageForPreprint.versionJustification"
 msgstr "Justificativa da versão"
 
 msgid "plugins.generic.titlePageForPreprint.headerText"
-msgstr "LILACS Preprint - Este documento é um preprint e sua situação atual está disponível em: {$doiPreprint}"
+msgstr "LILACS Preprint - Este documento é um preprint."
 
 msgid "plugins.generic.titlePageForPreprint.dateFormat"
 msgstr "(AAAA-MM-DD)"
