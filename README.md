@@ -4,17 +4,11 @@ This plugin creates a title page on PDF files submitted to preprint servers. The
 
 After the preprint is posted, the title page is updated if the preprint relations are changed. The updating also takes place when the preprint is unposted and posted back again.
 
-The common information obtained for the PDF title page are:
+This BIREME customization generates a single A4 portrait (210 × 297 mm) title page with the LILACS Preprint identity: two institutional logos, version, title, optional subtitle, ordered authors (one per line for 1–5 authors; a centered, comma-separated block for 6 or more), linked DOI when available, peer-review and institutional notices, and submission/posting dates. Editorial text is available in Portuguese, Spanish and English. Relation status, journal DOI, endorsements, translation citation and version justification remain in OPS but are not printed.
 
-- Relation status
-- Publication DOI (if the preprint has been published elsewhere)
-- Preprint title
-- Preprint authors
-- Preprint DOI in current server
-- Submitted date 
-- Posted date
+The cover uses TCPDF's bundled DejaVu Sans Unicode font (regular, bold and italic), instead of the reference document's Arial/Calibri. The retained checklist generator uses Open Sans. Long metadata uses progressively smaller spacing and fonts, down to 18 pt for titles, 11 pt for subtitles and 9 pt for authors/body text. If the complete metadata still cannot fit on one page, generation reports an error and preserves the original PDF; it never truncates metadata or adds another cover page.
 
-The plugin also adds a new page at the end of the PDF file, containing the server's submission checklist at the moment the preprint is posted first time.
+The manuscript header identifies LILACS Preprint without a DOI. An absent DOI appears on the cover as localized text without a hyperlink. The submission checklist page is currently not added: a new PDF contains the cover plus the original manuscript. Updates replace only the first page, preserving any final checklist already present in legacy PDFs.
 
 ## Compatibility
 
@@ -31,12 +25,14 @@ To download the plugin, go to the [Releases page](https://github.com/lepidus/tit
 
 This plugin requires the installation of the CPDF binary in your system. You can download it at the [GitHub repository](https://github.com/coherentgraphics/cpdf-binaries). After that, you should make it executable from the command line. In Linux systems it can be done by placing the binary in the `/usr/local/bin` directory and running `chmod +x /usr/local/bin/cpdf`.
 
-This plugin also requires a logo on your OPS, defined on `Website Settings` > `Appearance` > `Logo`, so you need to upload an image. Images with any kind of transparency (alpha channel) are not supported and **should not** be used.
+Institutional logos are bundled in `resources/`; the title page does not depend on the general OPS website logo. `lilacs-logo.jpg` is a byte-for-byte copy of the official JPEG. `lilacs-preprint-logo.png` is derived from the official 1945 × 809 RGBA PNG by compositing onto white and saving as RGB without alpha or tRNS transparency. The reference originals remain unchanged. `reference/` is development material only and is not needed at runtime. Images with transparency must not be substituted into this renderer.
+
+TCPDF is installed through the existing Composer dependency; CPDF remains required for stamping, merging and replacing the first page. The posting/update hooks are unchanged.
 
 ## Development dependencies
 * [poppler-utils](https://poppler.freedesktop.org/)
 * [php-imagick](https://www.php.net/manual/pt_BR/imagick.compareimages.php) - needed for unit tests.
-* [phpunit](https://phpunit.de/) - version 8, to run unit tests.
+* [phpunit](https://phpunit.de/) - use the version and `lib/pkp/tests/phpunit.xml` configuration supplied by your OPS checkout (the `ApplicationPlugins` suite). Tests require an isolated development installation, not a production database.
 
 ## Installation
 

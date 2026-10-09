@@ -17,6 +17,22 @@ class SubmissionModel extends DataObject
         return '';
     }
 
+    public function getSubtitle(string $locale): string
+    {
+        return $this->getData('subtitle', $locale) ?? '';
+    }
+
+    public function getAuthorNames(string $locale): array
+    {
+        $names = $this->getData('authorNames', $locale);
+        if ($names !== null) {
+            return $names;
+        }
+        // Legacy callers may still supply a display string; never split names on punctuation.
+        $legacy = $this->getData('authors');
+        return empty($legacy) ? [] : [$legacy];
+    }
+
     public function getStatus(): string
     {
         return $this->getData('status');
@@ -25,7 +41,7 @@ class SubmissionModel extends DataObject
     public function getDOI(): string
     {
         $doi = $this->getData('doi');
-        return empty($doi) ? ("Not informed") : $doi;
+        return trim((string) $doi);
     }
 
     public function getJournalDOI(): string
@@ -36,7 +52,12 @@ class SubmissionModel extends DataObject
 
     public function getAuthors(): string
     {
-        return $this->getData('authors');
+        $legacy = $this->getData('authors');
+        if ($legacy !== null) {
+            return $legacy;
+        }
+        $localizedNames = $this->getData('authorNames') ?? [];
+        return implode('; ', reset($localizedNames) ?: []);
     }
 
     public function getGalleys(): array

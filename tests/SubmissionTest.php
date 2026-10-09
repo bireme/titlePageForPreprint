@@ -70,6 +70,22 @@ class SubmissionTest extends PKPTestCase
         $this->assertEquals($this->titleEn, $submission->getTitle('en'));
     }
 
+    public function testLocalizedSubtitleAndStructuredAuthors(): void
+    {
+        $submission = $this->getSubmissionForTests();
+        $this->assertSame('', $submission->getSubtitle('pt_BR'));
+        $submission->setData('subtitle', ['pt_BR' => 'Subtítulo', 'en' => 'Subtitle']);
+        $this->assertSame('Subtítulo', $submission->getSubtitle('pt_BR'));
+        $this->assertSame('Subtitle', $submission->getSubtitle('en'));
+        $this->assertSame('', $submission->getSubtitle('es'));
+        $names = ['Silva, João', 'María García'];
+        $submission->setData('authorNames', ['pt_BR' => $names]);
+        $this->assertSame($names, $submission->getAuthorNames('pt_BR'));
+        $this->assertSame([$this->authors], $submission->getAuthorNames('en'));
+        $submission->unsetData('authors');
+        $this->assertSame('Silva, João; María García', $submission->getAuthors());
+    }
+
     public function testHasSubmissionStatus(): void
     {
         $submission = $this->getSubmissionForTests();
@@ -87,7 +103,11 @@ class SubmissionTest extends PKPTestCase
         $submission = $this->getSubmissionForTests();
         $submission->unsetData('doi');
 
-        $this->assertEquals("Not informed", $submission->getDOI());
+        $this->assertSame('', $submission->getDOI());
+        foreach ([null, '', '   '] as $doi) {
+            $submission->setData('doi', $doi);
+            $this->assertSame('', $submission->getDOI());
+        }
     }
 
     public function testHasDoiJournal(): void

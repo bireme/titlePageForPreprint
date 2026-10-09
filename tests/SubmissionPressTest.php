@@ -8,6 +8,16 @@ use APP\plugins\generic\titlePageForPreprint\classes\Pdf;
 
 class SubmissionPressTest extends PdfHandlingTest
 {
+    private function buildPress($submission, bool $hasTitlePage = false): SubmissionPress
+    {
+        $press = $this->getMockBuilder(SubmissionPress::class)
+            ->setConstructorArgs([$submission, $this->checklist])
+            ->onlyMethods(['galleyHasTitlePage'])
+            ->getMock();
+        $press->method('galleyHasTitlePage')->willReturn($hasTitlePage);
+        return $press;
+    }
+
     private function buildMockGalleyAdapter($args): GalleyAdapter
     {
         $mockGalley = $this->getMockBuilder(GalleyAdapter::class)
@@ -35,12 +45,12 @@ class SubmissionPressTest extends PdfHandlingTest
         $galley = $this->buildMockGalleyAdapter([$galleyPath, $this->locale, 1, 2]);
         $submission = $this->getSubmissionForTests();
         $submission->setData('galleys', [$galley]);
-        $press = new SubmissionPress($submission, $this->checklist, $this->logo);
+        $press = $this->buildPress($submission);
 
         $press->insertTitlePage($this->buildMockSubmissionFileUpdater());
 
         $pdfOfGalley = new Pdf($galleyPath);
-        $this->assertEquals(3, $pdfOfGalley->getNumberOfPages());
+        $this->assertEquals(2, $pdfOfGalley->getNumberOfPages());
     }
 
     public function testInsertsCorrectlyMultipleGalleys(): void
@@ -52,14 +62,27 @@ class SubmissionPressTest extends PdfHandlingTest
         $submission = $this->getSubmissionForTests();
         $submission->setData('galleys', [$firstGalley, $secondGalley]);
 
-        $press = new SubmissionPress($submission, $this->checklist, $this->logo);
+        $press = $this->buildPress($submission);
         $press->insertTitlePage($this->buildMockSubmissionFileUpdater());
 
         $pdfOfFirstGalley = new Pdf($fistGalleyPath);
         $pdfOfSecondGalley = new Pdf($secondGalleyPath);
 
-        $this->assertEquals(3, $pdfOfFirstGalley->getNumberOfPages());
-        $this->assertEquals(4, $pdfOfSecondGalley->getNumberOfPages());
+        $this->assertEquals(2, $pdfOfFirstGalley->getNumberOfPages());
+        $this->assertEquals(3, $pdfOfSecondGalley->getNumberOfPages());
+    }
+
+    public function testUpdatesExistingGalleyWithoutDuplicatingCoverOrChecklist(): void
+    {
+        $galley = $this->buildMockGalleyAdapter([$this->pathOfTestPdf, $this->locale, 1, 2]);
+        $submission = $this->getSubmissionForTests();
+        $submission->setData('galleys', [$galley]);
+        $this->buildPress($submission)->insertTitlePage($this->buildMockSubmissionFileUpdater());
+        $submission->setData('version', '2');
+        $updater = $this->buildMockSubmissionFileUpdater();
+        $updater->expects($this->once())->method('updateRevisions')->with(1, 2, true);
+        $this->buildPress($submission, true)->insertTitlePage($updater);
+        $this->assertSame(2, (new Pdf($this->pathOfTestPdf))->getNumberOfPages());
     }
 
     public function testMustIgnoreNotPdfFiles(): void
@@ -72,12 +95,12 @@ class SubmissionPressTest extends PdfHandlingTest
         $submission->setData('galleys', [$firstGalley, $secondGalley]);
 
         $hashOfNotPdfGalley = md5_file($secondGalleyPath);
-        $press = new SubmissionPress($submission, $this->checklist, $this->logo);
+        $press = $this->buildPress($submission);
         $press->insertTitlePage($this->buildMockSubmissionFileUpdater());
 
         $pdfOfFirstGalley = new Pdf($fistGalleyPath);
 
-        $this->assertEquals(3, $pdfOfFirstGalley->getNumberOfPages());
+        $this->assertEquals(2, $pdfOfFirstGalley->getNumberOfPages());
         $this->assertEquals($hashOfNotPdfGalley, md5_file($secondGalleyPath));
     }
 }
